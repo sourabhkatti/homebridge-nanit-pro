@@ -37,6 +37,9 @@ jobs:
           node --check src/streamingDelegate.js
           node --check src/authServer.js
           node --check src/recordingDelegate.js
+          node --check src/returnSockets.js
+          node --check src/tls.js
+          node --check src/redact.js
           node --check src/cli.js
 
       - name: Security audit
