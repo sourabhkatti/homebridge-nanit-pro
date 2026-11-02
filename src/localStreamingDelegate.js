@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LocalStreamingDelegate = void 0;
 const child_process_1 = require("child_process");
+const crypto = __importStar(require("crypto"));
 const ws_1 = __importDefault(require("ws"));
 const os = __importStar(require("os"));
 const nanit_proto_1 = require("./nanit.proto");
@@ -65,6 +66,8 @@ class LocalStreamingDelegate {
     cloudFallbackGetUrl;
     sensorPollTimer;
     currentRtmpUrl;
+    rtmpPublishKey;
+    rtmpStreamPath;
     sharedWs = null;
     _sensorWs = null;
     _sensorReconnectTimer = null;
@@ -77,6 +80,9 @@ class LocalStreamingDelegate {
         this.rtmpPort = rtmpPort;
         this.cameraUid = cameraUid || '';
         this.babyUid = babyUid || '';
+        // Random per-run key in the RTMP path. The camera is told to push to this path and nothing else is accepted.
+        this.rtmpPublishKey = crypto.randomBytes(16).toString('hex');
+        this.rtmpStreamPath = `/live/nanit_${this.babyUid}_${this.rtmpPublishKey}`;
         this.configuredLocalAddress = configuredLocalAddress;
         this.onSensorData = onSensorData;
         this.onMotion = onMotion;
@@ -103,9 +109,38 @@ class LocalStreamingDelegate {
         this.rtmpServer = new node_media_server_1.default(config);
         this._rtmpPublishing = new Set();
         this._rtmpPublishWaiters = new Map();
+        // node-media-server keeps its sessions and event emitter at module level, so with several cameras every
+        // delegate hears every session. Each delegate only handles the sessions that arrived on its own port.
+        this.rtmpServer.on('prePublish', (id, streamPath) => {
+            const session = this._getOwnRtmpSession(id);
+            if (!session) return;
+            const remote = this._normalizeAddress(session.ip);
+            if (streamPath !== this.rtmpStreamPath) {
+                this.log.warn(`[${this.name}] Rejected RTMP publish from ${remote}: unexpected stream path`);
+                session.reject();
+            }
+            else if (this.localIp && remote !== this.localIp) {
+                this.log.warn(`[${this.name}] Rejected RTMP publish from ${remote}: not the camera (${this.localIp})`);
+                session.reject();
+            }
+        });
+        this.rtmpServer.on('prePlay', (id, streamPath) => {
+            const session = this._getOwnRtmpSession(id);
+            if (!session) return;
+            const remote = this._normalizeAddress(session.ip);
+            if (!this._isHostAddress(remote)) {
+                this.log.warn(`[${this.name}] Rejected RTMP play from ${remote}: not this host`);
+                session.reject();
+            }
+            else if (streamPath !== this.rtmpStreamPath) {
+                this.log.warn(`[${this.name}] Rejected RTMP play from ${remote}: unexpected stream path`);
+                session.reject();
+            }
+        });
         this.rtmpServer.on('postPublish', (id, streamPath) => {
+            if (!this._getOwnRtmpSession(id)) return;
             this._rtmpPublishing.add(streamPath);
-            this.log.debug(`[${this.name}] RTMP publisher connected: ${streamPath}`);
+            this.log.debug(`[${this.name}] RTMP publisher connected: ${this._maskKey(streamPath)}`);
             const waiters = this._rtmpPublishWaiters.get(streamPath);
             if (waiters) {
                 this._rtmpPublishWaiters.delete(streamPath);
@@ -113,11 +148,34 @@ class LocalStreamingDelegate {
             }
         });
         this.rtmpServer.on('donePublish', (id, streamPath) => {
+            if (!this._getOwnRtmpSession(id)) return;
             this._rtmpPublishing.delete(streamPath);
-            this.log.debug(`[${this.name}] RTMP publisher disconnected: ${streamPath}`);
+            this.log.debug(`[${this.name}] RTMP publisher disconnected: ${this._maskKey(streamPath)}`);
         });
         this.rtmpServer.run();
         this.log.info(`[${this.name}] Local RTMP server started on port ${this.rtmpPort}`);
+    }
+    _getOwnRtmpSession(id) {
+        const session = this.rtmpServer.getSession(id);
+        return session && session.socket && session.socket.localPort === this.rtmpPort ? session : undefined;
+    }
+    // node-media-server listens on a dual-stack socket, so IPv4 peers show up as ::ffff:a.b.c.d
+    _normalizeAddress(address) {
+        const text = String(address || '');
+        return text.startsWith('::ffff:') ? text.slice(7) : text;
+    }
+    // A peer connecting from this machine, whether to 127.0.0.1 or to the LAN address (which arrives on the loopback
+    // interface with the LAN address as its source)
+    _isHostAddress(address) {
+        const hostAddresses = new Set(['127.0.0.1', '::1', this.getHostIp()]);
+        for (const addresses of Object.values(os.networkInterfaces())) {
+            for (const iface of addresses || []) hostAddresses.add(iface.address);
+        }
+        return hostAddresses.has(address);
+    }
+    // The stream key must not reach the logs
+    _maskKey(text) {
+        return String(text).split(this.rtmpPublishKey).join('[stream_key]');
     }
     stopRtmpServer() {
         this.log.debug(`[${this.name}] RTMP server kept alive for reuse`);
@@ -238,7 +296,7 @@ class LocalStreamingDelegate {
             request: request,
         });
         const buffer = nanit_proto_1.client.Message.encode(message).finish();
-        this.log.debug(`[${this.name}] Sending PUT_STREAMING request to ${rtmpUrl}`);
+        this.log.debug(`[${this.name}] Sending PUT_STREAMING request to ${this._maskKey(rtmpUrl)}`);
         ws.send(buffer);
     }
     sendSensorDataRequest(ws) {
@@ -271,7 +329,7 @@ class LocalStreamingDelegate {
         };
         const streamKey = `nanit_${this.babyUid}`;
         const isLocalStreamActive = this.sharedWs && this.sharedWs.readyState === ws_1.default.OPEN
-            && this._rtmpPublishing?.has(`/live/${streamKey}`);
+            && this._rtmpPublishing?.has(this.rtmpStreamPath);
         let ffmpegArgs;
         if (isLocalStreamActive) {
             const rtspUrl = `rtsp://localhost:8554/${streamKey}`;
@@ -367,7 +425,7 @@ class LocalStreamingDelegate {
         return new Promise((resolve) => {
             const http = require('http');
             const req = http.request(apiUrl, { method: 'PUT' }, (res) => {
-                this.log.info(`[${this.name}] go2rtc stream registered: ${streamName} → ${rtmpUrl} (HTTP ${res.statusCode})`);
+                this.log.info(`[${this.name}] go2rtc stream registered: ${streamName} → ${this._maskKey(rtmpUrl)} (HTTP ${res.statusCode})`);
                 resolve();
             });
             req.on('error', (err) => {
@@ -392,7 +450,7 @@ class LocalStreamingDelegate {
     }
     // Shared camera connection — one RTMP push via go2rtc relay, multiple RTSP readers
     async _ensureSharedStream() {
-        const streamPath = `/live/nanit_${this.babyUid}`;
+        const streamPath = this.rtmpStreamPath;
         if (this.sharedWs && this.sharedWs.readyState === ws_1.default.OPEN && this._rtmpPublishing?.has(streamPath)) {
             return; // already streaming with active RTMP push
         }
@@ -408,9 +466,8 @@ class LocalStreamingDelegate {
         const ws = await this.connectToCamera();
         this.sharedWs = ws;
         const hostIp = this.getHostIp();
-        const streamKey = `nanit_${this.babyUid}`;
-        const rtmpUrl = `rtmp://${hostIp}:${this.rtmpPort}/live/${streamKey}`;
-        this.log.info(`[${this.name}] Requesting camera push → ${rtmpUrl}`);
+        const rtmpUrl = `rtmp://${hostIp}:${this.rtmpPort}${streamPath}`;
+        this.log.info(`[${this.name}] Requesting camera push → ${this._maskKey(rtmpUrl)}`);
         this.sendStreamingRequest(ws, rtmpUrl);
         this.currentRtmpUrl = rtmpUrl;
         this.sendSensorDataRequest(ws);
@@ -426,7 +483,7 @@ class LocalStreamingDelegate {
         // registration, so the RTMP stream must already be live or it will fail.
         this.log.debug(`[${this.name}] Waiting for camera RTMP connection...`);
         try {
-            await this._waitForRtmpPublisher(streamKey, 12000);
+            await this._waitForRtmpPublisher(streamPath, 12000);
         } catch (err) {
             // Camera never pushed RTMP — send STOPPED to release its connection slot,
             // otherwise the camera keeps the slot occupied and returns 403 on the next attempt.
@@ -455,10 +512,9 @@ class LocalStreamingDelegate {
         // already pushing via _waitForRtmpPublisher, so go2rtc will serve immediately.
         await this._registerGo2rtcStream(rtmpUrl);
     }
-    async _waitForRtmpPublisher(streamKey, timeoutMs = 12000) {
-        const streamPath = `/live/${streamKey}`;
+    async _waitForRtmpPublisher(streamPath, timeoutMs = 12000) {
         if (this._rtmpPublishing?.has(streamPath)) {
-            this.log.debug(`[${this.name}] RTMP publisher already active for ${streamPath}`);
+            this.log.debug(`[${this.name}] RTMP publisher already active for ${this._maskKey(streamPath)}`);
             return true;
         }
         return new Promise((resolve, reject) => {
@@ -473,7 +529,7 @@ class LocalStreamingDelegate {
                     if (idx !== -1) list.splice(idx, 1);
                     if (list.length === 0) this._rtmpPublishWaiters.delete(streamPath);
                 }
-                reject(new Error(`Timed out waiting for camera RTMP push on ${streamPath}`));
+                reject(new Error(`Timed out waiting for camera RTMP push on ${this._maskKey(streamPath)}`));
             }, timeoutMs);
         });
     }
