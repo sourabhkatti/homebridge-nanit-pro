@@ -25,7 +25,7 @@ class NanitPlatform {
         this.log = log;
         this.config = config;
         this.api = api;
-        if (this.config.authServer !== false) {
+        if (this.config.authServer === true) {
             const authPort = this.config.authPort || 8586;
             this.authServer = startAuthServer(authPort, this.log);
         }

@@ -90,6 +90,8 @@ Follow the prompts — it will output a `refreshToken` to paste into your config
 | `go2rtcApiUrl` | `http://localhost:1984` | go2rtc REST API URL |
 | `ffmpegPath` | `ffmpeg` | Path to the ffmpeg binary |
 | `refreshInterval` | `300` | How often to refresh the camera list (seconds) |
+| `authServer` | `false` | Start the built-in token page on `127.0.0.1`. Off unless set to `true`; the `nanit-auth` command does the same job from a terminal |
+| `authPort` | `8586` | Port of the built-in token page (only used when `authServer` is `true`). Open `http://localhost:8586/auth` on the Homebridge host |
 | `sensorInterval` | `60` | How often to poll temperature & humidity (seconds) |
 | `caFile` | `/etc/ssl/cert.pem` on macOS, ffmpeg's system trust store elsewhere | PEM bundle of the certificate authorities used to verify Nanit's cloud RTMPS certificate. Set it if your system keeps its CA bundle somewhere else (for example `/etc/ssl/certs/ca-certificates.crt` on Debian) |
 | `allowInsecureTls` | `false` | Disable TLS certificate verification for cloud RTMPS streams. Only enable if cloud streaming fails with a TLS error and switching to a properly built ffmpeg is not possible. See Security section. |
@@ -165,7 +167,7 @@ To use motion as a HomeKit automation trigger, set up a Home automation on the M
 | Area | Detail |
 |------|--------|
 | **go2rtc API & RTSP** | Bound to `127.0.0.1` — not reachable from other devices on the network |
-| **Auth server** | Bound to `127.0.0.1` — the token generation page is only reachable from the Homebridge host itself; access it via SSH tunnel or a local browser session |
+| **Auth server** | Off by default (`authServer: true` starts it). When on it is bound to `127.0.0.1` — the token generation page is only reachable from the Homebridge host itself; access it via SSH tunnel or a local browser session |
 | **`allowInsecureTls`** | Off by default. When enabled, ffmpeg skips TLS certificate verification for RTMPS connections — an on-path attacker could intercept the stream or steal the access token. Prefer switching to a properly compiled ffmpeg instead |
 | **Access token never logged** | The Nanit access token is redacted in all log output |
 | **No shell injection** | ffmpeg is launched via `child_process.spawn()` with an arguments array, never a shell string |

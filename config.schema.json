@@ -2,7 +2,7 @@
   "pluginAlias": "NanitCamera",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Stream your Nanit baby camera in HomeKit. To get your refresh token, visit **http://your-homebridge-ip:8586/auth** after the plugin starts.",
+  "headerDisplay": "Stream your Nanit baby camera in HomeKit. To get your refresh token, run `npx -p homebridge-nanit-pro nanit-auth` in a terminal on the Homebridge host.",
   "footerDisplay": "For help, see the [README](https://github.com/GhostOnyx/homebridge-nanit-pro#readme).",
   "schema": {
     "type": "object",
@@ -69,13 +69,19 @@
         "minimum": 60,
         "description": "How often to refresh the camera list from Nanit servers"
       },
+      "authServer": {
+        "title": "Enable Auth Page",
+        "type": "boolean",
+        "default": false,
+        "description": "Start the built-in auth page used to generate a refresh token. Off by default; running `npx -p homebridge-nanit-pro nanit-auth` in a terminal does the same without a web page. The page only listens on 127.0.0.1 of the Homebridge host."
+      },
       "authPort": {
         "title": "Auth Page Port",
         "type": "integer",
         "default": 8586,
         "minimum": 1024,
         "maximum": 65535,
-        "description": "Port for the built-in auth page used to generate a refresh token. Visit http://your-ip:PORT/auth"
+        "description": "Port for the built-in auth page (only used when Enable Auth Page is on). Open http://localhost:PORT/auth in a browser on the Homebridge host."
       },
       "debug": {
         "title": "Debug Logging",
@@ -103,6 +109,6 @@
     { "type": "section", "title": "Streaming", "expandable": true, "expanded": true,
       "items": ["streamMode", "localAddress", "localRtmpPort", "go2rtcApiUrl", "ffmpegPath"] },
     { "type": "section", "title": "Advanced", "expandable": true, "expanded": false,
-      "items": ["refreshInterval", "authPort", "debug", "caFile", "allowInsecureTls"] }
+      "items": ["refreshInterval", "authServer", "authPort", "debug", "caFile", "allowInsecureTls"] }
   ]
 }
