@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- HomeKit live streams no longer end after about 30 seconds: `prepareStream` advertised the controller's own ports as the accessory's RTCP return ports, so nothing listened for the controller's RTCP. The plugin now opens one UDP socket each for video and audio and advertises those ports, in both the local and cloud delegates. The sockets are closed when the stream stops, when the plugin shuts down, and two minutes after a prepare that is never followed by a start
+
+### Security
+- The local RTMP server only accepts the camera pushing to `/live/nanit_<babyUid>_<random per-run key>` from the camera's `local_ip`, and only lets the Homebridge host play the stream. The camera push URL now contains the key. node-media-server 2.7.4 cannot bind to a single interface, so the listener still accepts TCP connections on all interfaces
+- Cloud RTMPS reads (snapshots, cloud streaming, the auto-mode fallback) now verify the server certificate with `-tls_verify 1`, `-ca_file` and `-verifyhost` unless `allowInsecureTls` is `true`; ffmpeg does not verify by default. New optional `caFile` setting, defaulting to `/etc/ssl/cert.pem` on macOS. `allowInsecureTls` now also applies to the auto-mode cloud fallback, which ignored it before
+- Access tokens and the RTMP stream key are redacted from log lines, including the info-level cloud URL and ffmpeg stderr relayed at debug level
+- `nanit-tokens.json` is written with mode `0600` through a temp file and rename, and an existing file is tightened to `0600` on load
+- The localhost auth page now starts only when `authServer` is `true` (it used to start unless `authServer` was `false`)
+- Documentation and log messages tell users to run `npx -p homebridge-nanit-pro nanit-auth`; the bare `nanit-auth` package name on npm is not part of this plugin
+
+---
+
 ## [1.1.16] - 2026-06-06
 
 ### Changed

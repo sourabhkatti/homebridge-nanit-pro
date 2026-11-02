@@ -48,7 +48,7 @@ class NanitPlatform {
                 this.startRefreshIntervals();
             }).catch(err => {
                 this.log.error('Initial authentication failed — plugin will not function until credentials are fixed.');
-                this.log.error('Run "npx nanit-auth" to get a fresh refresh token, update config, and restart Homebridge.');
+                this.log.error('Run "npx -p homebridge-nanit-pro nanit-auth" to get a fresh refresh token, update config, and restart Homebridge.');
             });
         });
     }
@@ -78,13 +78,13 @@ class NanitPlatform {
             if (this.authFailures >= 3) {
                 this.authDisabled = true;
                 this.log.error(`Authentication failed ${this.authFailures} times — disabling to prevent MFA spam.`);
-                this.log.error('To fix: run "npx nanit-auth" on your Mac to get a fresh refresh token,');
+                this.log.error('To fix: run "npx -p homebridge-nanit-pro nanit-auth" on your Mac to get a fresh refresh token,');
                 this.log.error('then update the refreshToken in Homebridge config and restart.');
             }
             else {
                 this.log.error(`Authentication failed (attempt ${this.authFailures}/3).`);
                 this.log.error('Refresh token is invalid or expired. Will NOT attempt password login (would trigger MFA SMS).');
-                this.log.error('To fix: run "npx nanit-auth" to get a fresh refresh token and update config.');
+                this.log.error('To fix: run "npx -p homebridge-nanit-pro nanit-auth" to get a fresh refresh token and update config.');
             }
             throw new Error('Authentication failed: refresh token invalid, password login disabled for safety');
         }

@@ -53,6 +53,8 @@ log:
 
 > **Security note:** Bind the go2rtc API and RTSP to `127.0.0.1` so they are not accessible from other devices on your network.
 
+go2rtc must run on the same machine as Homebridge. The plugin's RTMP server only lets this machine play the stream (see [Security](#security)), so a go2rtc on another host is refused.
+
 ## Configuration
 
 Add to your Homebridge `config.json`:
@@ -72,21 +74,23 @@ Add to your Homebridge `config.json`:
 Password login triggers an SMS code every time Homebridge restarts. Use a refresh token instead:
 
 ```bash
-npx nanit-auth
+npx -p homebridge-nanit-pro nanit-auth
 ```
 
 Follow the prompts — it will output a `refreshToken` to paste into your config.
+
+Run the command exactly as written. The `-p homebridge-nanit-pro` part tells npx to fetch this plugin and run its `nanit-auth` command. Without it, npx can look up a package literally named `nanit-auth` on npm. That name is not part of this plugin and is currently unregistered, so anyone could publish a package under it that asks for your Nanit password.
 
 ### All Config Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `email` | — | Your Nanit account email **(required)** |
-| `refreshToken` | — | Long-lived token from `npx nanit-auth` **(recommended)** |
+| `refreshToken` | — | Long-lived token from `npx -p homebridge-nanit-pro nanit-auth` **(recommended)** |
 | `password` | — | Your Nanit password (only used once to obtain a refresh token via CLI) |
 | `streamMode` | `local` | `local` = LAN direct, `cloud` = via Nanit servers, `auto` = local with automatic cloud fallback |
 | `localAddress` | auto-detected | Override the Homebridge host IP sent to the camera for RTMP push. Set this if the camera cannot reach Homebridge or if streaming silently fails after connecting |
-| `localRtmpPort` | `1935` | Port the plugin's RTMP server listens on |
+| `localRtmpPort` | `1935` | Port the plugin's RTMP server listens on. Only the camera may publish to it and only this machine may play from it (see [Security](#security)) |
 | `go2rtcApiUrl` | `http://localhost:1984` | go2rtc REST API URL |
 | `ffmpegPath` | `ffmpeg` | Path to the ffmpeg binary |
 | `refreshInterval` | `300` | How often to refresh the camera list (seconds) |
@@ -108,7 +112,7 @@ To enable activity zones and event recording:
 
 ```
 Nanit Camera
-    │ RTMP push (LAN)
+    │ RTMP push (LAN) to /live/nanit_<babyUid>_<random key>
     ▼
 node-media-server (port 1935)
     │ go2rtc pulls via RTMP
@@ -118,6 +122,8 @@ go2rtc relay
     ▼
 ffmpeg → SRTP → HomeKit
 ```
+
+The random key in the push path is generated each time Homebridge starts and is sent to the camera in the streaming request. The plugin refuses any publisher that does not use that exact path or does not come from the camera's address as reported by Nanit's API, and any player that is not on the Homebridge host.
 
 In `auto` mode, if the local stream cannot be established the plugin automatically falls back to cloud streaming — no manual intervention needed.
 
@@ -143,6 +149,7 @@ To use motion as a HomeKit automation trigger, set up a Home automation on the M
 - go2rtc must be running before streaming starts — verify with `curl http://localhost:1984/api/streams`
 - The camera pushes RTMP to the IP reported as `Requesting camera push →` in the logs. If that IP is wrong, set `localAddress` to the correct LAN IP
 - Confirm port 1935 is not blocked by a host firewall between the camera and Homebridge
+- Look for `Rejected RTMP publish from <ip>: not the camera (<ip>)` in the logs. The plugin only accepts the push from the camera address Nanit reported at startup, so if the camera's IP changed since Homebridge started, restart Homebridge
 - Ensure ffmpeg 6 or later is installed — ffmpeg 5 and earlier used `-stimeout` which was removed in ffmpeg 6
 
 **Cloud stream fails with "IO Error: -9806" or TLS error**
@@ -160,7 +167,7 @@ To use motion as a HomeKit automation trigger, set up a Home automation on the M
 - Ensure port 1935 is not blocked by a firewall between the camera and Homebridge
 
 **Token expired**
-- Run `npx nanit-auth` to get a fresh refresh token and update your config
+- Run `npx -p homebridge-nanit-pro nanit-auth` to get a fresh refresh token and update your config
 
 ## Security
 
@@ -168,13 +175,15 @@ To use motion as a HomeKit automation trigger, set up a Home automation on the M
 |------|--------|
 | **go2rtc API & RTSP** | Bound to `127.0.0.1` — not reachable from other devices on the network |
 | **Auth server** | Off by default (`authServer: true` starts it). When on it is bound to `127.0.0.1` — the token generation page is only reachable from the Homebridge host itself; access it via SSH tunnel or a local browser session |
+| **Local RTMP ingest** | The camera pushes to `/live/nanit_<babyUid>_<random key>`; the key is new on every start and never logged. A publish is refused unless it uses that exact path and comes from the camera's `local_ip`, and a player is refused unless it is on the Homebridge host (loopback or the host's own addresses, which is how go2rtc and HomeKit Secure Video connect). node-media-server 2.7.4 cannot bind to one interface, so the port still accepts TCP connections from the LAN; it just refuses everything above. Add a firewall rule that only lets the camera reach the port if you want it closed to other devices as well |
+| **Cloud TLS verification** | Cloud RTMPS streams and snapshots are read with `-tls_verify 1`, the CA bundle in `caFile` (`/etc/ssl/cert.pem` on macOS) and the server name from the URL. ffmpeg does not verify certificates unless asked to |
 | **`allowInsecureTls`** | Off by default. When enabled, ffmpeg skips TLS certificate verification for RTMPS connections — an on-path attacker could intercept the stream or steal the access token. Prefer switching to a properly compiled ffmpeg instead |
-| **Access token never logged** | The Nanit access token is redacted in all log output |
+| **Tokens never logged** | Access tokens and the RTMP stream key are redacted from log lines, including the cloud stream URL and the ffmpeg output relayed at debug level |
 | **No shell injection** | ffmpeg is launched via `child_process.spawn()` with an arguments array, never a shell string |
 | **Refresh token preferred over password** | Using a refresh token means your Nanit password is never stored on disk. Password login is intentionally disabled in the plugin to prevent MFA spam |
 | **SRTP encrypted video** | All HomeKit video streams are encrypted end-to-end using SRTP (AES-CM-128-HMAC-SHA1-80) |
 | **WSS signalling** | The WebSocket connection to Nanit's signalling server uses TLS (`wss://`) |
-| **Token persistence** | Refresh tokens are stored in Homebridge's own storage directory (`nanit-tokens.json`) — not in any external or internal HAP storage API |
+| **Token persistence** | Refresh tokens are stored in Homebridge's own storage directory (`nanit-tokens.json`), readable only by its owner (mode `0600`) and replaced atomically on each save. An existing file is tightened to `0600` when the plugin starts |
 | **Dependencies** | All dependencies (`node-media-server`, `ws`, `protobufjs`) are pinned to latest versions with no known CVEs |
 
 ## Changelog
