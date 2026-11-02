@@ -4,6 +4,8 @@ exports.NanitCamera = void 0;
 const streamingDelegate_1 = require("./streamingDelegate");
 const localStreamingDelegate_1 = require("./localStreamingDelegate");
 const { NanitRecordingDelegate, RECORDING_OPTIONS } = require("./recordingDelegate");
+const { resolveCaFile } = require("./tls");
+const fs = require("fs");
 class NanitCamera {
     api;
     hap;
@@ -45,16 +47,20 @@ class NanitCamera {
         const ffmpegPath = this.platform.config.ffmpegPath || 'ffmpeg';
         const go2rtcApiUrl = this.platform.config.go2rtcApiUrl || 'http://localhost:1984';
         const allowInsecureTls = !!this.platform.config.allowInsecureTls;
+        const caFile = resolveCaFile(this.platform.config.caFile);
         if (allowInsecureTls) {
             this.log.warn(`[${this.getName()}] allowInsecureTls is enabled — TLS certificate verification is disabled for cloud streams`);
         }
+        else if (caFile && !fs.existsSync(caFile)) {
+            this.log.warn(`[${this.getName()}] CA bundle ${caFile} not found — cloud streams and snapshots will fail TLS verification. Set caFile to a valid PEM bundle.`);
+        }
         if (streamMode === 'local' && localIp && hasValidCameraUid) {
             this.log.info(`[${this.getName()}] Using local streaming mode (${localIp})`);
-            this.streamingDelegate = new localStreamingDelegate_1.LocalStreamingDelegate(this.hap, this.log, this.baby.uid, localIp, () => this.platform.getAccessToken(), rtmpPort, cameraUid, this.baby.uid, this.platform.config.localAddress, (t, h) => this.updateSensors(t, h), ffmpegPath, go2rtcApiUrl, (detected) => this.updateMotion(detected), allowInsecureTls);
+            this.streamingDelegate = new localStreamingDelegate_1.LocalStreamingDelegate(this.hap, this.log, this.baby.uid, localIp, () => this.platform.getAccessToken(), rtmpPort, cameraUid, this.baby.uid, this.platform.config.localAddress, (t, h) => this.updateSensors(t, h), ffmpegPath, go2rtcApiUrl, (detected) => this.updateMotion(detected), allowInsecureTls, caFile);
         }
         else if (streamMode === 'auto' && localIp && hasValidCameraUid) {
             this.log.info(`[${this.getName()}] Using auto streaming mode (will try local first)`);
-            this.streamingDelegate = new localStreamingDelegate_1.LocalStreamingDelegate(this.hap, this.log, this.baby.uid, localIp, () => this.platform.getAccessToken(), rtmpPort, cameraUid, this.baby.uid, this.platform.config.localAddress, (t, h) => this.updateSensors(t, h), ffmpegPath, go2rtcApiUrl, (detected) => this.updateMotion(detected), allowInsecureTls);
+            this.streamingDelegate = new localStreamingDelegate_1.LocalStreamingDelegate(this.hap, this.log, this.baby.uid, localIp, () => this.platform.getAccessToken(), rtmpPort, cameraUid, this.baby.uid, this.platform.config.localAddress, (t, h) => this.updateSensors(t, h), ffmpegPath, go2rtcApiUrl, (detected) => this.updateMotion(detected), allowInsecureTls, caFile);
             this.streamingDelegate.cloudFallbackGetUrl = () => this.getStreamUrl();
         }
         else {
@@ -72,7 +78,7 @@ class NanitCamera {
             else {
                 this.log.info(`[${this.getName()}] Using cloud streaming mode`);
             }
-            this.streamingDelegate = new streamingDelegate_1.NanitStreamingDelegate(this.hap, this.log, this.getName(), () => this.getStreamUrl(), allowInsecureTls);
+            this.streamingDelegate = new streamingDelegate_1.NanitStreamingDelegate(this.hap, this.log, this.getName(), () => this.getStreamUrl(), allowInsecureTls, caFile);
         }
         this.recordingDelegate = new NanitRecordingDelegate(this.log, () => this.currentRtmpUrl);
         const options = {

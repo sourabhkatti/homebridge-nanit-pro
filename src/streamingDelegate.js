@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NanitStreamingDelegate = void 0;
 const child_process_1 = require("child_process");
 const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
+const { getTlsArgs } = require("./tls");
 class NanitStreamingDelegate {
     hap;
     log;
@@ -10,12 +11,13 @@ class NanitStreamingDelegate {
     getStreamUrl;
     sessions = new Map();
     controller;
-    constructor(hap, log, name, getStreamUrl, allowInsecureTls = false) {
+    constructor(hap, log, name, getStreamUrl, allowInsecureTls = false, caFile = undefined) {
         this.hap = hap;
         this.log = log;
         this.name = name;
         this.getStreamUrl = getStreamUrl;
         this.allowInsecureTls = allowInsecureTls;
+        this.caFile = caFile;
     }
     async handleSnapshotRequest(request, callback) {
         this.log.debug(`[${this.name}] Snapshot requested: ${request.width}x${request.height}`);
@@ -27,7 +29,7 @@ class NanitStreamingDelegate {
             }
         };
         const streamUrl = this.getStreamUrl();
-        const tlsArgs = this.allowInsecureTls ? ['-tls_verify', '0'] : [];
+        const tlsArgs = getTlsArgs(streamUrl, this.allowInsecureTls, this.caFile);
         const ffmpegArgs = [
             ...tlsArgs,
             '-timeout', '10000000',
@@ -133,7 +135,7 @@ class NanitStreamingDelegate {
             const audioPort = info.audioPort;
             const audioSrtpKey = info.audioSRTP.toString('base64');
             const audioSsrc = info.audioSSRC;
-            const tlsArgs = this.allowInsecureTls ? ['-tls_verify', '0'] : [];
+            const tlsArgs = getTlsArgs(streamUrl, this.allowInsecureTls, this.caFile);
             const ffmpegArgs = [
                 '-re',
                 ...tlsArgs,

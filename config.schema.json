@@ -82,6 +82,12 @@
         "type": "boolean",
         "default": false
       },
+      "caFile": {
+        "title": "CA Bundle File",
+        "type": "string",
+        "placeholder": "/etc/ssl/cert.pem",
+        "description": "PEM file of the certificate authorities trusted to verify Nanit's cloud RTMPS certificate. Defaults to /etc/ssl/cert.pem on macOS; on other systems ffmpeg uses its own system trust store. Not used when Allow Insecure TLS is enabled."
+      },
       "allowInsecureTls": {
         "title": "Allow Insecure TLS (disable certificate verification)",
         "type": "boolean",
@@ -97,6 +103,6 @@
     { "type": "section", "title": "Streaming", "expandable": true, "expanded": true,
       "items": ["streamMode", "localAddress", "localRtmpPort", "go2rtcApiUrl", "ffmpegPath"] },
     { "type": "section", "title": "Advanced", "expandable": true, "expanded": false,
-      "items": ["refreshInterval", "authPort", "debug", "allowInsecureTls"] }
+      "items": ["refreshInterval", "authPort", "debug", "caFile", "allowInsecureTls"] }
   ]
 }

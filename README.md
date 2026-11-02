@@ -91,6 +91,7 @@ Follow the prompts — it will output a `refreshToken` to paste into your config
 | `ffmpegPath` | `ffmpeg` | Path to the ffmpeg binary |
 | `refreshInterval` | `300` | How often to refresh the camera list (seconds) |
 | `sensorInterval` | `60` | How often to poll temperature & humidity (seconds) |
+| `caFile` | `/etc/ssl/cert.pem` on macOS, ffmpeg's system trust store elsewhere | PEM bundle of the certificate authorities used to verify Nanit's cloud RTMPS certificate. Set it if your system keeps its CA bundle somewhere else (for example `/etc/ssl/certs/ca-certificates.crt` on Debian) |
 | `allowInsecureTls` | `false` | Disable TLS certificate verification for cloud RTMPS streams. Only enable if cloud streaming fails with a TLS error and switching to a properly built ffmpeg is not possible. See Security section. |
 
 ## HomeKit Secure Video
@@ -145,6 +146,7 @@ To use motion as a HomeKit automation trigger, set up a Home automation on the M
 **Cloud stream fails with "IO Error: -9806" or TLS error**
 - This is a TLS handshake failure between ffmpeg and Nanit's RTMPS server, commonly seen with the [tessus macOS ffmpeg build](https://evermeet.cx/ffmpeg/) on newer macOS versions
 - First try a [Homebrew ffmpeg](https://formulae.brew.sh/formula/ffmpeg) build (`brew install ffmpeg`) and set `ffmpegPath` to `/opt/homebrew/bin/ffmpeg`
+- The plugin verifies Nanit's certificate against `caFile`. If the log shows "Peer certificate failed verification" or a CA bundle warning, point `caFile` at your system's PEM bundle
 - If switching ffmpeg is not possible, enable `allowInsecureTls: true` in config as a last resort — note this disables certificate verification (see Security section)
 
 **No audio / choppy audio**

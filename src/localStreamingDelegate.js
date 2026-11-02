@@ -44,6 +44,7 @@ const os = __importStar(require("os"));
 const nanit_proto_1 = require("./nanit.proto");
 const node_media_server_1 = __importDefault(require("node-media-server"));
 const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
+const { getTlsArgs } = require("./tls");
 class LocalStreamingDelegate {
     hap;
     log;
@@ -71,7 +72,7 @@ class LocalStreamingDelegate {
     sharedWs = null;
     _sensorWs = null;
     _sensorReconnectTimer = null;
-    constructor(hap, log, name, localIp, getAccessToken, rtmpPort = 1935, cameraUid, babyUid, configuredLocalAddress, onSensorData, ffmpegPath = 'ffmpeg', go2rtcApiUrl = 'http://localhost:1984', onMotion = null, allowInsecureTls = false) {
+    constructor(hap, log, name, localIp, getAccessToken, rtmpPort = 1935, cameraUid, babyUid, configuredLocalAddress, onSensorData, ffmpegPath = 'ffmpeg', go2rtcApiUrl = 'http://localhost:1984', onMotion = null, allowInsecureTls = false, caFile = undefined) {
         this.hap = hap;
         this.log = log;
         this.name = name;
@@ -90,6 +91,7 @@ class LocalStreamingDelegate {
         this.ffmpegPath = ffmpegPath;
         this.go2rtcApiUrl = go2rtcApiUrl || 'http://localhost:1984';
         this.allowInsecureTls = allowInsecureTls;
+        this.caFile = caFile;
     }
     startRtmpServer() {
         if (this.rtmpServer) {
@@ -338,7 +340,7 @@ class LocalStreamingDelegate {
         }
         else {
             const cloudUrl = `rtmps://media-secured.nanit.com/nanit/${this.babyUid}.${this.getAccessToken()}`;
-            const tlsArgs = this.allowInsecureTls ? ['-tls_verify', '0'] : [];
+            const tlsArgs = getTlsArgs(cloudUrl, this.allowInsecureTls, this.caFile);
             this.log.debug(`[${this.name}] Snapshot URL: rtmps://media-secured.nanit.com/nanit/[baby_uid].[token_redacted]`);
             ffmpegArgs = [...tlsArgs, '-timeout', '10000000', '-i', cloudUrl, '-frames:v', '1', '-f', 'image2', '-'];
         }
@@ -642,7 +644,7 @@ class LocalStreamingDelegate {
                 const x264Level = levelMap[video.level] || '3.1';
                 this.log.info(`[${this.name}] SRTP target: ${target}:${videoPort} (audio: ${info.audioPort}), profile: ${x264Profile}/${x264Level}, ${video.width}x${video.height}@${video.fps}fps ${videoBitrate}kbps`);
                 const inputArgs = usingCloudFallback
-                    ? ['-re', '-i', rtspUrl]
+                    ? ['-re', ...getTlsArgs(rtspUrl, this.allowInsecureTls, this.caFile), '-i', rtspUrl]
                     : ['-rtsp_transport', 'tcp', '-timeout', '10000000', '-i', rtspUrl];
                 const ffmpegArgs = [
                     ...inputArgs,
