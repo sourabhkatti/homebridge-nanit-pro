@@ -42,6 +42,7 @@ const ws_1 = __importDefault(require("ws"));
 const os = __importStar(require("os"));
 const nanit_proto_1 = require("./nanit.proto");
 const node_media_server_1 = __importDefault(require("node-media-server"));
+const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
 class LocalStreamingDelegate {
     hap;
     log;
@@ -312,9 +313,20 @@ class LocalStreamingDelegate {
         this.log.debug(`[${this.name}] Prepare stream request`);
         const sessionId = request.sessionID;
         const targetAddress = request.targetAddress;
-        const videoReturn = request.video.port;
+        // The response must advertise ports this accessory listens on for RTCP, not the controller's own ports
+        let returnSockets;
+        try {
+            closeReturnSockets(this.sessions.get(sessionId));
+            returnSockets = await openReturnSockets(request.addressVersion === 'ipv6', this.log, this.name);
+        }
+        catch (error) {
+            this.log.error(`[${this.name}] Could not open RTCP return sockets: ${error.message}`);
+            callback(error);
+            return;
+        }
+        const videoReturn = returnSockets.video.address().port;
         const videoSSRC = this.hap.CameraController.generateSynchronisationSource();
-        const audioReturn = request.audio.port;
+        const audioReturn = returnSockets.audio.address().port;
         const audioSSRC = this.hap.CameraController.generateSynchronisationSource();
         const sessionInfo = {
             address: targetAddress,
@@ -343,7 +355,9 @@ class LocalStreamingDelegate {
                 srtp_salt: request.audio.srtp_salt,
             },
         };
-        this.sessions.set(sessionId, { process: undefined, ws: undefined, info: sessionInfo });
+        const session = { process: undefined, ws: undefined, info: sessionInfo, returnSockets };
+        this.sessions.set(sessionId, session);
+        expireReturnSockets(session);
         callback(undefined, response);
     }
     // Register the stream in go2rtc so it pulls from our local RTMP server
@@ -649,6 +663,7 @@ class LocalStreamingDelegate {
                 if (false) { // placeholder — shared WS handled separately
                     session.ws.close();
                 }
+                closeReturnSockets(session);
             }
             this.sessions.delete(sessionId);
             this._stopSharedStreamIfIdle();
@@ -673,6 +688,7 @@ class LocalStreamingDelegate {
                     }
                 }, 2000);
             }
+            closeReturnSockets(session);
         }
         this.sessions.clear();
         if (this._sensorReconnectTimer) { clearTimeout(this._sensorReconnectTimer); this._sensorReconnectTimer = null; }

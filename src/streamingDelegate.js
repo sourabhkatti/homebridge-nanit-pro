@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NanitStreamingDelegate = void 0;
 const child_process_1 = require("child_process");
+const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
 class NanitStreamingDelegate {
     hap;
     log;
@@ -65,9 +66,20 @@ class NanitStreamingDelegate {
         this.log.debug(`[${this.name}] Prepare stream request`);
         const sessionId = request.sessionID;
         const targetAddress = request.targetAddress;
-        const videoReturn = request.video.port;
+        // The response must advertise ports this accessory listens on for RTCP, not the controller's own ports
+        let returnSockets;
+        try {
+            closeReturnSockets(this.sessions.get(sessionId));
+            returnSockets = await openReturnSockets(request.addressVersion === 'ipv6', this.log, this.name);
+        }
+        catch (error) {
+            this.log.error(`[${this.name}] Could not open RTCP return sockets: ${error.message}`);
+            callback(error);
+            return;
+        }
+        const videoReturn = returnSockets.video.address().port;
         const videoSSRC = this.hap.CameraController.generateSynchronisationSource();
-        const audioReturn = request.audio.port;
+        const audioReturn = returnSockets.audio.address().port;
         const audioSSRC = this.hap.CameraController.generateSynchronisationSource();
         const sessionInfo = {
             address: targetAddress,
@@ -96,7 +108,9 @@ class NanitStreamingDelegate {
                 srtp_salt: request.audio.srtp_salt,
             },
         };
-        this.sessions.set(sessionId, { process: undefined, info: sessionInfo });
+        const session = { process: undefined, info: sessionInfo, returnSockets };
+        this.sessions.set(sessionId, session);
+        expireReturnSockets(session);
         callback(undefined, response);
     }
     async handleStreamRequest(request, callback) {
@@ -182,6 +196,7 @@ class NanitStreamingDelegate {
                     }
                 }, 2000);
             }
+            closeReturnSockets(session);
             this.sessions.delete(sessionId);
             callback();
         }
@@ -201,6 +216,7 @@ class NanitStreamingDelegate {
                     }
                 }, 2000);
             }
+            closeReturnSockets(session);
         }
         this.sessions.clear();
     }
