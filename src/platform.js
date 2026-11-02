@@ -256,17 +256,32 @@ class NanitPlatform {
         return path.join(this.api.user.storagePath(), 'nanit-tokens.json');
     }
     _loadToken(key) {
+        const tokensPath = this._getTokensPath();
+        // The file holds a long-lived refresh token: tighten one written by an earlier version with looser permissions
+        try { fs.chmodSync(tokensPath, 0o600); } catch (err) {
+            if (err.code !== 'ENOENT') this.log.warn('Could not restrict the token file to its owner:', err.message);
+        }
         try {
-            const data = JSON.parse(fs.readFileSync(this._getTokensPath(), 'utf8'));
+            const data = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
             return data[key] || null;
         } catch { return null; }
     }
     _saveToken(key, value) {
         try {
+            const tokensPath = this._getTokensPath();
             let data = {};
-            try { data = JSON.parse(fs.readFileSync(this._getTokensPath(), 'utf8')); } catch {}
+            try { data = JSON.parse(fs.readFileSync(tokensPath, 'utf8')); } catch {}
             data[key] = value;
-            fs.writeFileSync(this._getTokensPath(), JSON.stringify(data, null, 2));
+            // Write an owner-only temp file in the same directory, then rename it over the real one, so the file is
+            // never readable by others and never seen half-written
+            const tempPath = `${tokensPath}.${process.pid}.tmp`;
+            fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), { mode: 0o600 });
+            try {
+                fs.renameSync(tempPath, tokensPath);
+            } catch (err) {
+                try { fs.unlinkSync(tempPath); } catch {}
+                throw err;
+            }
         } catch (err) {
             this.log.warn('Failed to save token:', err.message);
         }
