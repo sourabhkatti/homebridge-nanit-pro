@@ -45,6 +45,7 @@ const nanit_proto_1 = require("./nanit.proto");
 const node_media_server_1 = __importDefault(require("node-media-server"));
 const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
 const { getTlsArgs } = require("./tls");
+const { redact } = require("./redact");
 class LocalStreamingDelegate {
     hap;
     log;
@@ -142,7 +143,7 @@ class LocalStreamingDelegate {
         this.rtmpServer.on('postPublish', (id, streamPath) => {
             if (!this._getOwnRtmpSession(id)) return;
             this._rtmpPublishing.add(streamPath);
-            this.log.debug(`[${this.name}] RTMP publisher connected: ${this._maskKey(streamPath)}`);
+            this.log.debug(`[${this.name}] RTMP publisher connected: ${this._redact(streamPath)}`);
             const waiters = this._rtmpPublishWaiters.get(streamPath);
             if (waiters) {
                 this._rtmpPublishWaiters.delete(streamPath);
@@ -152,7 +153,7 @@ class LocalStreamingDelegate {
         this.rtmpServer.on('donePublish', (id, streamPath) => {
             if (!this._getOwnRtmpSession(id)) return;
             this._rtmpPublishing.delete(streamPath);
-            this.log.debug(`[${this.name}] RTMP publisher disconnected: ${this._maskKey(streamPath)}`);
+            this.log.debug(`[${this.name}] RTMP publisher disconnected: ${this._redact(streamPath)}`);
         });
         this.rtmpServer.run();
         this.log.info(`[${this.name}] Local RTMP server started on port ${this.rtmpPort}`);
@@ -175,9 +176,9 @@ class LocalStreamingDelegate {
         }
         return hostAddresses.has(address);
     }
-    // The stream key must not reach the logs
-    _maskKey(text) {
-        return String(text).split(this.rtmpPublishKey).join('[stream_key]');
+    // Text that may hold the RTMP stream key or an access token must go through here before it is logged
+    _redact(text) {
+        return redact(text, [this.rtmpPublishKey]);
     }
     stopRtmpServer() {
         this.log.debug(`[${this.name}] RTMP server kept alive for reuse`);
@@ -298,7 +299,7 @@ class LocalStreamingDelegate {
             request: request,
         });
         const buffer = nanit_proto_1.client.Message.encode(message).finish();
-        this.log.debug(`[${this.name}] Sending PUT_STREAMING request to ${this._maskKey(rtmpUrl)}`);
+        this.log.debug(`[${this.name}] Sending PUT_STREAMING request to ${this._redact(rtmpUrl)}`);
         ws.send(buffer);
     }
     sendSensorDataRequest(ws) {
@@ -427,7 +428,7 @@ class LocalStreamingDelegate {
         return new Promise((resolve) => {
             const http = require('http');
             const req = http.request(apiUrl, { method: 'PUT' }, (res) => {
-                this.log.info(`[${this.name}] go2rtc stream registered: ${streamName} → ${this._maskKey(rtmpUrl)} (HTTP ${res.statusCode})`);
+                this.log.info(`[${this.name}] go2rtc stream registered: ${streamName} → ${this._redact(rtmpUrl)} (HTTP ${res.statusCode})`);
                 resolve();
             });
             req.on('error', (err) => {
@@ -469,7 +470,7 @@ class LocalStreamingDelegate {
         this.sharedWs = ws;
         const hostIp = this.getHostIp();
         const rtmpUrl = `rtmp://${hostIp}:${this.rtmpPort}${streamPath}`;
-        this.log.info(`[${this.name}] Requesting camera push → ${this._maskKey(rtmpUrl)}`);
+        this.log.info(`[${this.name}] Requesting camera push → ${this._redact(rtmpUrl)}`);
         this.sendStreamingRequest(ws, rtmpUrl);
         this.currentRtmpUrl = rtmpUrl;
         this.sendSensorDataRequest(ws);
@@ -516,7 +517,7 @@ class LocalStreamingDelegate {
     }
     async _waitForRtmpPublisher(streamPath, timeoutMs = 12000) {
         if (this._rtmpPublishing?.has(streamPath)) {
-            this.log.debug(`[${this.name}] RTMP publisher already active for ${this._maskKey(streamPath)}`);
+            this.log.debug(`[${this.name}] RTMP publisher already active for ${this._redact(streamPath)}`);
             return true;
         }
         return new Promise((resolve, reject) => {
@@ -531,7 +532,7 @@ class LocalStreamingDelegate {
                     if (idx !== -1) list.splice(idx, 1);
                     if (list.length === 0) this._rtmpPublishWaiters.delete(streamPath);
                 }
-                reject(new Error(`Timed out waiting for camera RTMP push on ${this._maskKey(streamPath)}`));
+                reject(new Error(`Timed out waiting for camera RTMP push on ${this._redact(streamPath)}`));
             }, timeoutMs);
         });
     }
@@ -551,7 +552,7 @@ class LocalStreamingDelegate {
                     req.end();
                 });
                 const producers = data?.[streamName]?.producers;
-                this.log.debug(`[${this.name}] go2rtc check [${streamName}]: producers=${JSON.stringify(producers)}`);
+                this.log.debug(`[${this.name}] go2rtc check [${streamName}]: producers=${this._redact(JSON.stringify(producers))}`);
                 // Wait for actual tracks — go2rtc sets producers[] as soon as it starts
                 // pulling the URL, but tracks[] is only populated when real data flows.
                 const ready = producers?.some(p => Array.isArray(p.tracks) && p.tracks.length > 0);
@@ -685,12 +686,12 @@ class LocalStreamingDelegate {
                     '-srtp_out_params', audioSrtpKey,
                     `srtp://${target}:${info.audioPort}?rtcpport=${info.audioPort}&pkt_size=188`,
                 ];
-                this.log.info(`[${this.name}] Starting ffmpeg → ${rtspUrl}`);
+                this.log.info(`[${this.name}] Starting ffmpeg → ${this._redact(rtspUrl)}`);
                 const ffmpeg = (0, child_process_1.spawn)(this.ffmpegPath, ffmpegArgs, { env: process.env });
                 session.process = ffmpeg;
                 ffmpeg.stderr.on('data', (data) => {
                     const message = data.toString().trim();
-                    if (message) this.log.debug(`[${this.name}] FFmpeg: ${message}`);
+                    if (message) this.log.debug(`[${this.name}] FFmpeg: ${this._redact(message)}`);
                 });
                 ffmpeg.on('error', (error) => {
                     this.log.error(`[${this.name}] FFmpeg failed to start: ${error.message} (is ffmpeg installed and in PATH?)`);

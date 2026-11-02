@@ -4,6 +4,7 @@ exports.NanitStreamingDelegate = void 0;
 const child_process_1 = require("child_process");
 const { openReturnSockets, closeReturnSockets, expireReturnSockets } = require("./returnSockets");
 const { getTlsArgs } = require("./tls");
+const { redact } = require("./redact");
 class NanitStreamingDelegate {
     hap;
     log;
@@ -176,7 +177,7 @@ class NanitStreamingDelegate {
             session.process = ffmpeg;
             ffmpeg.stderr.on('data', (data) => {
                 const message = data.toString().trim();
-                if (message) this.log.debug(`[${this.name}] FFmpeg: ${message}`);
+                if (message) this.log.debug(`[${this.name}] FFmpeg: ${redact(message)}`);
             });
             ffmpeg.on('error', (error) => {
                 this.log.error(`[${this.name}] FFmpeg process error:`, error.message);
